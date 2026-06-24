@@ -1,4 +1,83 @@
-# React + TypeScript + Vite
+# Trident Leasing — Staff Platform
+
+A React + TypeScript + Vite frontend with an Express + PostgreSQL backend providing JWT-based authentication.
+
+## Architecture
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, TypeScript, Vite |
+| Backend API | Express 4, Node.js (ESM) |
+| Database | PostgreSQL (via `pg`) |
+| Auth | bcrypt password hashing + JWT tokens |
+
+## Getting started
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env
+# Edit .env — set DATABASE_URL and JWT_SECRET at minimum
+```
+
+### 3. Start the API server
+
+The server creates the `users` table automatically on first run.
+
+```bash
+npm run dev:server
+# API available at http://localhost:3001
+```
+
+### 4. Start the Vite dev server
+
+```bash
+npm run dev
+# Frontend available at http://localhost:5173
+# /api requests are proxied to the Express server
+```
+
+## API endpoints
+
+| Method | Path | Auth required | Description |
+|--------|------|---------------|-------------|
+| `POST` | `/api/register` | No | Register a new user |
+| `POST` | `/api/login` | No | Login, returns JWT |
+| `GET` | `/api/dashboard` | Yes (Bearer JWT) | Returns user info |
+| `GET` | `/api/health` | No | Health check |
+
+### Request / response examples
+
+**POST /api/register** and **POST /api/login**
+```json
+// Request body
+{ "email": "user@example.com", "password": "mypassword" }
+
+// 200/201 response
+{ "token": "<jwt>", "user": { "id": 1, "email": "user@example.com", "created_at": "..." } }
+```
+
+**GET /api/dashboard** — requires `Authorization: Bearer <token>` header
+```json
+{ "user": { "id": 1, "email": "...", "created_at": "..." }, "message": "Welcome back, user@example.com!" }
+```
+
+## Production build
+
+```bash
+npm run build   # Compiles TypeScript + bundles frontend to dist/
+npm start       # Starts the Express API server
+```
+
+Serve the `dist/` folder from Express or a CDN, and point `CLIENT_ORIGIN` to your frontend URL.
+
+---
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
