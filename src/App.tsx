@@ -1,65 +1,104 @@
 import { useState, useEffect } from 'react'
-import { supabase } from './lib/supabase'
-import { BarChart3, Truck, Lock, ShieldCheck, Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { BarChart3, Truck, Lock, ShieldCheck, Eye, EyeOff, ArrowLeft, UserPlus, LogIn, Calendar, Mail, Hash } from 'lucide-react'
+import {
+  login,
+  register,
+  getDashboard,
+  getToken,
+  setToken,
+  clearToken,
+  type AuthUser,
+  type DashboardResponse,
+} from './lib/api'
 import './App.css'
 
-interface User {
-  id: string
-  email: string
-}
+type AuthMode = 'login' | 'register'
 
 function App() {
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
+  const [dashboardLoading, setDashboardLoading] = useState(false)
 
+  // Restore session from localStorage on mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser({ id: session.user.id, email: session.user.email! })
-      }
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser({ id: session.user.id, email: session.user.email! })
-      } else {
-        setUser(null)
-      }
-    })
-
-    return () => subscription.unsubscribe()
+    const token = getToken()
+    if (!token) return
+    setDashboardLoading(true)
+    getDashboard()
+      .then((data) => {
+        setUser(data.user)
+        setDashboard(data)
+      })
+      .catch(() => {
+        // Token expired or invalid — clear it silently
+        clearToken()
+      })
+      .finally(() => setDashboardLoading(false))
   }, [])
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    try {
+      const data = authMode === 'login'
+        ? await login(email, password)
+        : await register(email, password)
 
-    if (error) {
-      setError(error.message)
+      setToken(data.token)
+      setUser(data.user)
+
+      // Fetch full dashboard data after auth
+      const dash = await getDashboard()
+      setDashboard(dash)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
+  const handleSignOut = () => {
+    clearToken()
+    setUser(null)
+    setDashboard(null)
     setEmail('')
     setPassword('')
-  }
-
-  const fillDemoAccount = (role: string) => {
-    setEmail(`${role.toLowerCase()}@tridentleasing.com`)
-    setPassword('password123')
     setError('')
   }
 
+  const switchMode = (mode: AuthMode) => {
+    setAuthMode(mode)
+    setError('')
+  }
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+
+  // ── Loading splash while restoring session ──────────────────────────────────
+  if (dashboardLoading) {
+    return (
+      <div className="session-loading">
+        <div className="session-loading-inner">
+          <div className="logo-icon" style={{ width: 48, height: 48, fontSize: 16, borderRadius: 12 }}>TL</div>
+          <p>Restoring session…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Dashboard ───────────────────────────────────────────────────────────────
   if (user) {
     return (
       <div className="dashboard">
@@ -76,9 +115,38 @@ function App() {
             <button onClick={handleSignOut} className="signout-btn">Sign Out</button>
           </div>
         </header>
+
         <main className="dashboard-main">
-          <h1>Welcome to Trident Leasing</h1>
-          <p>You are signed in as <strong>{user.email}</strong></p>
+          <h1>{dashboard?.message ?? `Welcome back!`}</h1>
+
+          {/* User info card */}
+          <div className="user-info-card">
+            <h2 className="user-info-title">Account Information</h2>
+            <div className="user-info-grid">
+              <div className="user-info-item">
+                <span className="user-info-icon"><Hash size={15} /></span>
+                <div>
+                  <div className="user-info-label">User ID</div>
+                  <div className="user-info-value">{user.id}</div>
+                </div>
+              </div>
+              <div className="user-info-item">
+                <span className="user-info-icon"><Mail size={15} /></span>
+                <div>
+                  <div className="user-info-label">Email address</div>
+                  <div className="user-info-value">{user.email}</div>
+                </div>
+              </div>
+              <div className="user-info-item">
+                <span className="user-info-icon"><Calendar size={15} /></span>
+                <div>
+                  <div className="user-info-label">Member since</div>
+                  <div className="user-info-value">{formatDate(user.created_at)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="dashboard-cards">
             <div className="dashboard-card">
               <BarChart3 size={24} />
@@ -106,6 +174,7 @@ function App() {
     )
   }
 
+  // ── Login / Register ────────────────────────────────────────────────────────
   return (
     <div className="login-page">
       <div className="login-left">
@@ -176,10 +245,34 @@ function App() {
         </div>
 
         <div className="login-form-container">
-          <h2 className="form-title">Sign in to your account</h2>
-          <p className="form-subtitle">Enter your staff credentials to access the admin platform.</p>
+          {/* Auth mode tabs */}
+          <div className="auth-tabs">
+            <button
+              className={`auth-tab ${authMode === 'login' ? 'auth-tab--active' : ''}`}
+              onClick={() => switchMode('login')}
+            >
+              <LogIn size={15} />
+              Sign In
+            </button>
+            <button
+              className={`auth-tab ${authMode === 'register' ? 'auth-tab--active' : ''}`}
+              onClick={() => switchMode('register')}
+            >
+              <UserPlus size={15} />
+              Register
+            </button>
+          </div>
 
-          <form onSubmit={handleSignIn} className="login-form">
+          <h2 className="form-title">
+            {authMode === 'login' ? 'Sign in to your account' : 'Create an account'}
+          </h2>
+          <p className="form-subtitle">
+            {authMode === 'login'
+              ? 'Enter your staff credentials to access the admin platform.'
+              : 'Register a new staff account to get started.'}
+          </p>
+
+          <form onSubmit={handleSubmit} className="login-form">
             <div className="form-group">
               <label htmlFor="email">Work email</label>
               <input
@@ -202,6 +295,7 @@ function App() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
+                  minLength={authMode === 'register' ? 8 : undefined}
                 />
                 <button
                   type="button"
@@ -211,29 +305,31 @@ function App() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+              {authMode === 'register' && (
+                <span className="field-hint">Minimum 8 characters</span>
+              )}
             </div>
 
             {error && <div className="error-message">{error}</div>}
 
             <button type="submit" className="signin-btn" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading
+                ? authMode === 'login' ? 'Signing in…' : 'Creating account…'
+                : authMode === 'login' ? 'Sign In' : 'Create Account'}
             </button>
           </form>
 
-          <div className="demo-accounts">
-            <div className="demo-label">Demo accounts</div>
-            <div className="demo-buttons">
-              <button onClick={() => fillDemoAccount('Admin')} className="demo-btn">
-                Admin
-              </button>
-              <button onClick={() => fillDemoAccount('Manager')} className="demo-btn">
-                Manager
-              </button>
-              <button onClick={() => fillDemoAccount('Underwriter')} className="demo-btn">
-                Underwriter
-              </button>
-            </div>
-          </div>
+          <p className="auth-switch">
+            {authMode === 'login' ? (
+              <>Don't have an account?{' '}
+                <button className="auth-switch-btn" onClick={() => switchMode('register')}>Register</button>
+              </>
+            ) : (
+              <>Already have an account?{' '}
+                <button className="auth-switch-btn" onClick={() => switchMode('login')}>Sign in</button>
+              </>
+            )}
+          </p>
         </div>
       </div>
     </div>
